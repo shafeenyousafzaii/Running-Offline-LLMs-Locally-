@@ -1,0 +1,371 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "h2q27gKz1H20"
+      },
+      "source": [
+        "##### Copyright 2023 The MediaPipe Authors. All Rights Reserved."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "cellView": "form",
+        "id": "TUfAcER1oUS6"
+      },
+      "outputs": [],
+      "source": [
+        "#@title Licensed under the Apache License, Version 2.0 (the \"License\");\n",
+        "# you may not use this file except in compliance with the License.\n",
+        "# You may obtain a copy of the License at\n",
+        "#\n",
+        "# https://www.apache.org/licenses/LICENSE-2.0\n",
+        "#\n",
+        "# Unless required by applicable law or agreed to in writing, software\n",
+        "# distributed under the License is distributed on an \"AS IS\" BASIS,\n",
+        "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n",
+        "# See the License for the specific language governing permissions and\n",
+        "# limitations under the License."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "L_cQX8dWu4Dv"
+      },
+      "source": [
+        "# Gesture Recognizer with MediaPipe Tasks\n",
+        "\n",
+        "This notebook shows you how to use MediaPipe Tasks Python API to recognize hand gestures in images."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "O6PN9FvIx614"
+      },
+      "source": [
+        "## Preparation\n",
+        "\n",
+        "Let's start with installing MediaPipe."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "gxbHBsF-8Y_l"
+      },
+      "outputs": [],
+      "source": [
+        "!pip install -q mediapipe"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "a49D7h4TVmru"
+      },
+      "source": [
+        "Then download an off-the-shelf model. This model can recognize 7 hand gestures: 👍, 👎, ✌️, ☝️, ✊, 👋, 🤟\n",
+        "\n",
+        "Check out the [MediaPipe documentation](https://developers.google.com/mediapipe/solutions/vision/gesture_recognizer#models) for more details about the model."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "OMjuVQiDYJKF"
+      },
+      "outputs": [],
+      "source": [
+        "!wget -q https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "8W_6sv5-JUdY"
+      },
+      "source": [
+        "## Visualization Utilities"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "cellView": "form",
+        "id": "H4aPO-hvbw3r"
+      },
+      "outputs": [],
+      "source": [
+        "#@markdown We implemented some functions to visualize the gesture recognition results. <br/> Run the following cell to activate the functions.\n",
+        "from matplotlib import pyplot as plt\n",
+        "import mediapipe as mp\n",
+        "from mediapipe.framework.formats import landmark_pb2\n",
+        "\n",
+        "plt.rcParams.update({\n",
+        "    'axes.spines.top': False,\n",
+        "    'axes.spines.right': False,\n",
+        "    'axes.spines.left': False,\n",
+        "    'axes.spines.bottom': False,\n",
+        "    'xtick.labelbottom': False,\n",
+        "    'xtick.bottom': False,\n",
+        "    'ytick.labelleft': False,\n",
+        "    'ytick.left': False,\n",
+        "    'xtick.labeltop': False,\n",
+        "    'xtick.top': False,\n",
+        "    'ytick.labelright': False,\n",
+        "    'ytick.right': False\n",
+        "})\n",
+        "\n",
+        "mp_hands = mp.solutions.hands\n",
+        "mp_drawing = mp.solutions.drawing_utils\n",
+        "mp_drawing_styles = mp.solutions.drawing_styles\n",
+        "\n",
+        "\n",
+        "def display_one_image(image, title, subplot, titlesize=16):\n",
+        "    \"\"\"Displays one image along with the predicted category name and score.\"\"\"\n",
+        "    plt.subplot(*subplot)\n",
+        "    plt.imshow(image)\n",
+        "    if len(title) > 0:\n",
+        "        plt.title(title, fontsize=int(titlesize), color='black', fontdict={'verticalalignment':'center'}, pad=int(titlesize/1.5))\n",
+        "    return (subplot[0], subplot[1], subplot[2]+1)\n",
+        "\n",
+        "\n",
+        "def display_batch_of_images_with_gestures_and_hand_landmarks(images, results):\n",
+        "    \"\"\"Displays a batch of images with the gesture category and its score along with the hand landmarks.\"\"\"\n",
+        "    # Images and labels.\n",
+        "    images = [image.numpy_view() for image in images]\n",
+        "    gestures = [top_gesture for (top_gesture, _) in results]\n",
+        "    multi_hand_landmarks_list = [multi_hand_landmarks for (_, multi_hand_landmarks) in results]\n",
+        "\n",
+        "    # Auto-squaring: this will drop data that does not fit into square or square-ish rectangle.\n",
+        "    rows = int(math.sqrt(len(images)))\n",
+        "    cols = len(images) // rows\n",
+        "\n",
+        "    # Size and spacing.\n",
+        "    FIGSIZE = 13.0\n",
+        "    SPACING = 0.1\n",
+        "    subplot=(rows,cols, 1)\n",
+        "    if rows < cols:\n",
+        "        plt.figure(figsize=(FIGSIZE,FIGSIZE/cols*rows))\n",
+        "    else:\n",
+        "        plt.figure(figsize=(FIGSIZE/rows*cols,FIGSIZE))\n",
+        "\n",
+        "    # Display gestures and hand landmarks.\n",
+        "    for i, (image, gestures) in enumerate(zip(images[:rows*cols], gestures[:rows*cols])):\n",
+        "        title = f\"{gestures.category_name} ({gestures.score:.2f})\"\n",
+        "        dynamic_titlesize = FIGSIZE*SPACING/max(rows,cols) * 40 + 3\n",
+        "        annotated_image = image.copy()\n",
+        "\n",
+        "        for hand_landmarks in multi_hand_landmarks_list[i]:\n",
+        "          hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()\n",
+        "          hand_landmarks_proto.landmark.extend([\n",
+        "            landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks\n",
+        "          ])\n",
+        "\n",
+        "          mp_drawing.draw_landmarks(\n",
+        "            annotated_image,\n",
+        "            hand_landmarks_proto,\n",
+        "            mp_hands.HAND_CONNECTIONS,\n",
+        "            mp_drawing_styles.get_default_hand_landmarks_style(),\n",
+        "            mp_drawing_styles.get_default_hand_connections_style())\n",
+        "\n",
+        "        subplot = display_one_image(annotated_image, title, subplot, titlesize=dynamic_titlesize)\n",
+        "\n",
+        "    # Layout.\n",
+        "    plt.tight_layout()\n",
+        "    plt.subplots_adjust(wspace=SPACING, hspace=SPACING)\n",
+        "    plt.show()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "83PEJNp9yPBU"
+      },
+      "source": [
+        "## Download test images\n",
+        "\n",
+        "Let's grab some test images that we'll use later. The images ([1](https://pixabay.com/photos/idea-pointing-raise-hand-raise-3082824/), [2](https://pixabay.com/photos/thumbs-up-happy-positive-woman-2649310/), [3](https://pixabay.com/photos/epidemic-disease-coronavirus-5082474/), [4](https://pixabay.com/photos/thumbs-down-disapprove-gesture-6744094/)) are from Pixabay."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "tzXuqyIBlXer"
+      },
+      "outputs": [],
+      "source": [
+        "import urllib\n",
+        "\n",
+        "IMAGE_FILENAMES = ['thumbs_down.jpg', 'victory.jpg', 'thumbs_up.jpg', 'pointing_up.jpg']\n",
+        "\n",
+        "for name in IMAGE_FILENAMES:\n",
+        "  url = f'https://storage.googleapis.com/mediapipe-tasks/gesture_recognizer/{name}'\n",
+        "  urllib.request.urlretrieve(url, name)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "XvwwAdKlgpSo"
+      },
+      "source": [
+        "Optionally, you can upload your own image. If you want to do so, uncomment and run the cell below."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "9cW_V2HvguvE"
+      },
+      "outputs": [],
+      "source": [
+        "# from google.colab import files\n",
+        "# uploaded = files.upload()\n",
+        "\n",
+        "# for filename in uploaded:\n",
+        "#   content = uploaded[filename]\n",
+        "#   with open(filename, 'wb') as f:\n",
+        "#     f.write(content)\n",
+        "# IMAGE_FILENAMES = list(uploaded.keys())\n",
+        "\n",
+        "# print('Uploaded files:', IMAGE_FILENAMES)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "P8XRmapjySMN"
+      },
+      "source": [
+        "Then let's check out the images."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "8rjHk72-lmHX"
+      },
+      "outputs": [],
+      "source": [
+        "import cv2\n",
+        "\n",
+        "from google.colab.patches import cv2_imshow\n",
+        "import math\n",
+        "\n",
+        "DESIRED_HEIGHT = 480\n",
+        "DESIRED_WIDTH = 480\n",
+        "\n",
+        "def resize_and_show(image):\n",
+        "  h, w = image.shape[:2]\n",
+        "  if h < w:\n",
+        "    img = cv2.resize(image, (DESIRED_WIDTH, math.floor(h/(w/DESIRED_WIDTH))))\n",
+        "  else:\n",
+        "    img = cv2.resize(image, (math.floor(w/(h/DESIRED_HEIGHT)), DESIRED_HEIGHT))\n",
+        "  cv2_imshow(img)\n",
+        "\n",
+        "\n",
+        "# Preview the images.\n",
+        "images = {name: cv2.imread(name) for name in IMAGE_FILENAMES}\n",
+        "for name, image in images.items():\n",
+        "  print(name)\n",
+        "  resize_and_show(image)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Iy4r2_ePylIa"
+      },
+      "source": [
+        "## Running inference and visualizing the results\n",
+        "\n",
+        "Here are the steps to run gesture recognizer using MediaPipe.\n",
+        "\n",
+        "Check out the [MediaPipe documentation](https://developers.google.com/mediapipe/solutions/vision/gesture_recognizer/python) to learn more about configuration options that this solution supports.\n",
+        "\n",
+        "*Note: Gesture Recognizer also returns the hand landmark it detects from the image, together with other useful information such as whether the hand(s) detected are left hand or right hand.*"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "KHqaswD6M8iO"
+      },
+      "outputs": [],
+      "source": [
+        "# STEP 1: Import the necessary modules.\n",
+        "import mediapipe as mp\n",
+        "from mediapipe.tasks import python\n",
+        "from mediapipe.tasks.python import vision\n",
+        "\n",
+        "# STEP 2: Create an GestureRecognizer object.\n",
+        "base_options = python.BaseOptions(model_asset_path='gesture_recognizer.task')\n",
+        "options = vision.GestureRecognizerOptions(base_options=base_options)\n",
+        "recognizer = vision.GestureRecognizer.create_from_options(options)\n",
+        "\n",
+        "images = []\n",
+        "results = []\n",
+        "for image_file_name in IMAGE_FILENAMES:\n",
+        "  # STEP 3: Load the input image.\n",
+        "  image = mp.Image.create_from_file(image_file_name)\n",
+        "\n",
+        "  # STEP 4: Recognize gestures in the input image.\n",
+        "  recognition_result = recognizer.recognize(image)\n",
+        "\n",
+        "  # STEP 5: Process the result. In this case, visualize it.\n",
+        "  images.append(image)\n",
+        "  top_gesture = recognition_result.gestures[0][0]\n",
+        "  hand_landmarks = recognition_result.hand_landmarks\n",
+        "  results.append((top_gesture, hand_landmarks))\n",
+        "\n",
+        "display_batch_of_images_with_gestures_and_hand_landmarks(images, results)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "_JVO3rvPD4RN"
+      },
+      "outputs": [],
+      "source": []
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3 (ipykernel)",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "codemirror_mode": {
+        "name": "ipython",
+        "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.8.10"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
